@@ -1,0 +1,19 @@
+{
+  "name": "designmatch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DesignMatch interior design marketplace (plain HTML, CSS and JavaScript)",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage --coverage.reporter=html --coverage.reporter=text",
+    "test:ui": "vitest --ui --open",
+    "test:report": "vitest run --reporter=html --outputFile=test-report/index.html && vite preview --outDir test-report --open"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/ui": "^3.2.7",
+    "jsdom": "^26.0.0",
+    "vitest": "^3.0.0"
+  }
+}
