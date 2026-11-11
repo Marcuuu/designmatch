@@ -2,8 +2,9 @@
    loadApp()  : data, entities, controllers, boundary classes and UI helpers (no DOM needed)
    loadSite() : everything, including pages.js and app.js (needs a jsdom environment) */
 import fs from 'node:fs';
+import vm from 'node:vm';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (f) => fs.readFileSync(path.join(root, 'js', f + '.js'), 'utf8');
@@ -35,16 +36,29 @@ function memoryStorage() {
 
 function build(files) {
   const names = files.flatMap((f) => NAMES[f]);
-  const code = files.map(read).join('\n;\n');
   // app.js defines the real Auth. Without it, tests get a minimal stand-in with the same shape.
-  const stub = files.includes('app')
-    ? ''
-    : 'const Auth = { current: null, user() { return this.current; }, login(u) { this.current = u; }, logout() { this.current = null; } };';
-  const exportList = [...names, ...(files.includes('app') ? [] : ['Auth'])].join(', ');
-  const factory = new Function('localStorage', 'sessionStorage', `${code}\n${stub}\nDB.load();\nreturn { ${exportList} };`);
+  const needsAuthStub = !files.includes('app');
   const local = globalThis.localStorage ?? memoryStorage();
   const session = globalThis.sessionStorage ?? memoryStorage();
-  const app = factory(local, session);
+  // Fresh context per call (fresh seed data), falling back to the test environment's globals (document, window, ...).
+  const own = { localStorage: local, sessionStorage: session };
+  const sandbox = new Proxy(own, {
+    get: (t, k) => (k in t ? t[k] : globalThis[k]),
+    has: (t, k) => k in t || k in globalThis,
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  const ctx = vm.createContext(sandbox);
+  // Each file is compiled as its own script, with its real file URL, so coverage is attributed to js/<file>.js
+  for (const f of files) {
+    const file = path.join(root, 'js', f + '.js');
+    new vm.Script(read(f), { filename: pathToFileURL(file).href }).runInContext(ctx);
+  }
+  if (needsAuthStub) {
+    vm.runInContext('const Auth = { current: null, user() { return this.current; }, login(u) { this.current = u; }, logout() { this.current = null; } };', ctx);
+  }
+  vm.runInContext('DB.load();', ctx);
+  const exportList = [...names, ...(needsAuthStub ? ['Auth'] : [])].join(', ');
+  const app = vm.runInContext(`({ ${exportList} })`, ctx);
   app.storage = local;
   return app;
 }
